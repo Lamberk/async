@@ -1,3 +1,6 @@
+import random
+
+
 SPACE_KEY_CODE = 32
 LEFT_KEY_CODE = 260
 RIGHT_KEY_CODE = 261
@@ -6,7 +9,7 @@ DOWN_KEY_CODE = 258
 
 
 def read_controls(canvas):
-    """Read keys pressed and returns tuple witl controls state."""
+    """Read keys pressed and returns tuple with controls state."""
 
     rows_direction = columns_direction = 0
     space_pressed = False
@@ -15,7 +18,6 @@ def read_controls(canvas):
         pressed_key_code = canvas.getch()
 
         if pressed_key_code == -1:
-            # https://docs.python.org/3/library/curses.html#curses.window.getch
             break
 
         if pressed_key_code == UP_KEY_CODE:
@@ -55,7 +57,7 @@ def draw_frame(canvas, start_row, start_column, text, negative=False):
             if column >= columns_number:
                 break
 
-            if symbol == ' ':
+            if symbol == " ":
                 continue
 
             # Check that current position it is not in a lower right corner of the window
@@ -64,7 +66,7 @@ def draw_frame(canvas, start_row, start_column, text, negative=False):
             if row == rows_number - 1 and column == columns_number - 1:
                 continue
 
-            symbol = symbol if not negative else ' '
+            symbol = symbol if not negative else " "
             canvas.addch(row, column, symbol)
 
 
@@ -75,3 +77,15 @@ def get_frame_size(text):
     rows = len(lines)
     columns = max([len(line) for line in lines])
     return rows, columns
+
+
+def get_random_position(canvas):
+    """Suggest random drawable position on the canvas considering border.
+    canvas.getmaxyx return height and width of the screen pixels starts from 0 index
+    so to avoid border we start from 1 and end to height - 2 and width - 2
+    https://docs.python.org/2/library/curses.html#curses.window.getmaxyx
+    """
+    window_height, window_width = canvas.getmaxyx()
+    random_y = random.randint(1, window_height - 2)
+    random_x = random.randint(1, window_width - 2)
+    return random_y, random_x

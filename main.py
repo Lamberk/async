@@ -1,53 +1,30 @@
 import asyncio
 import curses
-import time
+import itertools
 import random
 
-from curses_tools import draw_frame, read_controls, get_frame_size
-
-TIC_TIMEOUT = 0.1
-NUMBER_OF_STARS = 350
-MOVE_COLUMNS_MULTIPLIER = 5
-
-
-class BorderParams:
-    curses_border_key_arguments = ['ls', 'rs', 'ts', 'bs', 'tl', 'tr', 'bl', 'br']
-    default_value = 0
-
-    def _prepare_params(self, initial_params):
-        params = {}
-        for key in self.curses_border_key_arguments:
-            if key in initial_params:
-                value = initial_params[key]
-            else:
-                value = self.default_value
-            params[key] = value
-        return params
-
-    def __init__(self, **kwargs):
-        self.params = self._prepare_params(kwargs)
-
-    def __iter__(self):
-        for key, value in self.params.items():
-            yield value
+from time import sleep as time_sleep
+from consts import (
+    FPS,
+    MAX_OFFSET_TICS,
+    MIN_OFFSET_TICS,
+    MOVE_COLUMNS_MULTIPLIER,
+    MOVE_ROWS_MULTIPLIER,
+    NUMBER_OF_STARS,
+    TIC_TIMEOUT,
+)
+from curses_tools import draw_frame, get_random_position, read_controls, get_frame_size
 
 
 def get_star_symbol():
-    return random.choice('+*.:')
-
-
-def get_random_position(canvas):
-    max_x, max_y = canvas.getmaxyx()
-    suggested_x = random.randint(2, max_x - 2)
-    suggested_y = random.randint(2, max_y - 2)
-    return suggested_x, suggested_y
+    return random.choice("+*.:")
 
 
 def get_center_position(canvas):
-    max_x, max_y = canvas.getmaxyx()
-    suggested_x = max_x // 2
-    suggested_y = max_y // 2
-    return suggested_x, suggested_y
+    window_height, window_width = canvas.getmaxyx()
+    suggested_y = window_height // 2
+    suggested_x = window_width // 2
+    return suggested_y, suggested_x
 
 
 async def sleep(number):
@@ -56,110 +33,134 @@ async def sleep(number):
         number -= TIC_TIMEOUT
 
 
-async def blink(canvas, row, column, symbol='*'):
-    await sleep(random.randint(1, 50) / 10)
+async def blink(canvas, row, column, offset_tics, symbol="*", state=None):
+    await sleep(offset_tics)
 
     while True:
         canvas.addstr(row, column, symbol, curses.A_DIM)
-        await sleep(2)
+        await sleep(offset_tics)
 
         canvas.addstr(row, column, symbol)
-        await sleep(0.3)
+        await sleep(offset_tics)
 
         canvas.addstr(row, column, symbol, curses.A_BOLD)
-        await sleep(0.5)
+        await sleep(offset_tics)
 
         canvas.addstr(row, column, symbol)
-        await sleep(0.3)
+        await sleep(offset_tics)
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
     """Display animation of gun shot, direction and speed can be specified."""
-
     row, column = start_row, start_column
+    canvas.addstr(round(row), round(column), "*")
+    await sleep(TIC_TIMEOUT)
 
-    canvas.addstr(round(row), round(column), '*')
-    await asyncio.sleep(0)
-
-    canvas.addstr(round(row), round(column), 'O')
-    await asyncio.sleep(0)
-    canvas.addstr(round(row), round(column), ' ')
+    canvas.addstr(round(row), round(column), "O")
+    await sleep(TIC_TIMEOUT)
+    canvas.addstr(round(row), round(column), " ")
 
     row += rows_speed
     column += columns_speed
 
-    symbol = '-' if columns_speed else '|'
+    symbol = "-" if columns_speed else "|"
 
-    rows, columns = canvas.getmaxyx()
-    max_row, max_column = rows - 1, columns - 1
-
+    height, width = canvas.getmaxyx()
     curses.beep()
 
-    while 0 < row < max_row and 0 < column < max_column:
+    while 1 < row < height and 1 < column < width:
         canvas.addstr(round(row), round(column), symbol)
-        await asyncio.sleep(0)
-        canvas.addstr(round(row), round(column), ' ')
+        await sleep(TIC_TIMEOUT)
+        canvas.addstr(round(row), round(column), " ")
         row += rows_speed
         column += columns_speed
 
 
-def load_rocket_frames():
-    with open('img/rocket_frame_1.txt') as f1:
-        rocket_frame_1 = f1.read()
-    with open('img/rocket_frame_2.txt') as f2:
-        rocket_frame_2 = f2.read()
-    return rocket_frame_1, rocket_frame_2
+def get_new_coordinates(canvas, start_row, start_column, rocket_frame, state):
+    new_row = start_row + state.rows_direction * MOVE_ROWS_MULTIPLIER
+    new_column = start_column + state.columns_direction * MOVE_COLUMNS_MULTIPLIER
 
+    window_height, window_width = canvas.getmaxyx()
+    frame_rows, frame_columns = get_frame_size(rocket_frame)
 
-def get_new_coordinates(canvas, start_row, start_column, rocket_frame):
-    rows_direction, columns_direction, space_pressed = read_controls(canvas)
-    new_row = start_row + rows_direction
-    new_column = start_column + columns_direction * MOVE_COLUMNS_MULTIPLIER
-
-    max_row, max_column = canvas.getmaxyx()
-    rows, columns = get_frame_size(rocket_frame)
-    if new_row <= 0 or new_row + rows >= max_row:
-        new_row = start_row
-
-    if new_column <= 0 or new_column + columns >= max_column:
-        new_column = start_column
+    new_row = max(1, min(new_row, window_height - frame_rows - 1))
+    new_column = max(1, min(new_column, window_width - frame_columns - 4))
     return new_row, new_column
 
 
 async def animate_spaceship(canvas, start_row, start_column):
-    rocket_frame_1, rocket_frame_2 = load_rocket_frames()
+    row, column = start_row, start_column
+    for rocket_frame in itertools.cycle(
+        [
+            STATE.rocket_frame_1,
+            STATE.rocket_frame_1,
+            STATE.rocket_frame_2,
+            STATE.rocket_frame_2,
+        ]
+    ):
+        row, column = get_new_coordinates(canvas, row, column, rocket_frame, STATE)
+        STATE.ship_position = (row, column)
 
+        draw_frame(canvas, row, column, rocket_frame)
+        await asyncio.sleep(0)
+        draw_frame(canvas, row, column, rocket_frame, negative=True)
+
+
+async def animate_fire(canvas):
     while True:
-        draw_frame(canvas, start_row, start_column, rocket_frame_1)
-        await asyncio.sleep(0)
-        draw_frame(canvas, start_row, start_column, rocket_frame_1, negative=True)
+        await sleep(TIC_TIMEOUT)
+        row, column = STATE.ship_position
+        if STATE.space_pressed:
+            await fire(canvas, row, column + 2)
 
-        draw_frame(canvas, start_row, start_column, rocket_frame_2)
-        await asyncio.sleep(0)
 
-        new_row, new_column = get_new_coordinates(canvas, start_row, start_column, rocket_frame_1)
-        draw_frame(canvas, start_row, start_column, rocket_frame_2, negative=True)
-        start_row, start_column = new_row, new_column
+class State:
+    def __init__(self):
+        self.rows_direction = None
+        self.columns_direction = None
+        self.space_pressed = False
+        self.ship_position = (0, 0)
+
+        self.load_rocket_frames()
+
+    def load_rocket_frames(self):
+        with open("img/rocket_frame_1.txt") as f1:
+            self.rocket_frame_1 = f1.read()
+        with open("img/rocket_frame_2.txt") as f2:
+            self.rocket_frame_2 = f2.read()
+
+
+STATE = State()
 
 
 def draw(canvas):
     curses.curs_set(False)
-    coroutines = []
-    border_params = BorderParams(rs='|', ls='|')
-    canvas.border(*border_params)
+    canvas.border()
     canvas.nodelay(True)
 
+    coroutines = []
+
     for _ in range(NUMBER_OF_STARS):
-        coroutines.append(blink(canvas, *get_random_position(canvas), get_star_symbol()))
+        offset_tics = random.randint(MIN_OFFSET_TICS, MAX_OFFSET_TICS)
+        coroutines.append(
+            blink(canvas, *get_random_position(canvas), offset_tics, get_star_symbol())
+        )
+
     coroutines.append(animate_spaceship(canvas, *get_center_position(canvas)))
+    coroutines.append(animate_fire(canvas))
 
     while coroutines:
+        rows_direction, columns_direction, space_pressed = read_controls(canvas)
+        STATE.rows_direction = rows_direction
+        STATE.columns_direction = columns_direction
+        STATE.space_pressed = space_pressed
+
         for coroutine in coroutines:
             coroutine.send(None)
-        time.sleep(TIC_TIMEOUT)
         canvas.refresh()
+        time_sleep(1 / FPS)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     curses.update_lines_cols()
     curses.wrapper(draw)
