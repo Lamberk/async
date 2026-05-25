@@ -1,33 +1,58 @@
 # Async Spaceship Game
 
-This is a learning project from the async Python course at [dvmn.org](https://dvmn.org). The project demonstrates asynchronous programming concepts using Python's `asyncio` library and terminal graphics with `curses`.
+A terminal arcade game from the async Python course at
+[dvmn.org](https://dvmn.org). The project demonstrates cooperative
+multitasking with coroutines, terminal graphics with `curses`, simple physics,
+collision detection, and animated ASCII assets.
 
-## About
+## Gameplay
 
-A simple terminal-based game where you control a spaceship flying through a starfield. The game uses async coroutines to animate stars, handle user input, and move the spaceship simultaneously.
+You pilot a spaceship through a growing field of space debris. The game starts
+in 1957 and advances through space history while the danger level increases:
+
+- stars blink independently in the background;
+- debris starts appearing from 1961 and falls more frequently over time;
+- collisions with debris end the game;
+- the ship can shoot regular projectiles;
+- in 2020 the weapon upgrades to a plasma gun that clears a whole vertical
+  line of debris.
 
 ## Requirements
 
 - Python 3.10+
-- Unix-like system (Linux, macOS) with terminal support for curses
+- A Unix-like terminal with `curses` support, such as macOS or Linux
+
+The game itself uses the Python standard library. The repository also includes
+`pyproject.toml` and `uv.lock` for a reproducible local environment with
+development tools.
 
 ## Setup
 
-1. Clone this repository
-2. No additional dependencies needed - the project uses only Python standard library
-
-## How to Start
-
-Run the game with:
+Clone the repository and enter the project directory:
 
 ```bash
-python main.py
+git clone <repository-url>
+cd async
 ```
 
-## How to Play
+Run the game using the locked `uv` environment:
 
-- Use **arrow keys** to control the spaceship:
-  - ↑ / ↓ - move up and down
-  - ← / → - move left and right
-- Use **space** to fire
-- Press `Ctrl+C` to exit the game
+```bash
+uv sync
+uv run python main.py
+```
+
+## Controls
+
+- Arrow keys: move the spaceship
+- Space: fire
+- Ctrl+C: quit
+
+## Development
+
+Available local tooling:
+
+```bash
+uv run ruff check .
+uv run isort .
+```

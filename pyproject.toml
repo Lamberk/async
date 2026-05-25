@@ -9,3 +9,14 @@ dependencies = [
     "isort>=8.0.1",
     "ruff>=0.14.4",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
