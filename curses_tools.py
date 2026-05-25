@@ -56,7 +56,7 @@ def draw_frame(canvas, start_row, start_column, text, negative=False):
 
             if column >= columns_number:
                 break
-                
+
             # if symbol == " ":
             #     continue
 

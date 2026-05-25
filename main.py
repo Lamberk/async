@@ -1,6 +1,5 @@
 import asyncio
 import curses
-from curses import ascii
 
 import itertools
 import random
@@ -12,13 +11,14 @@ from consts import (
     MAX_OFFSET_TICS,
     MIN_OFFSET_TICS,
     NUMBER_OF_STARS,
+    START_YEAR,
     TIC_TIMEOUT,
     COROUTINES,
-    TICS_TO_CHANGE_YEAR
+    TICS_TO_CHANGE_YEAR,
 )
 from curses_tools import draw_frame, get_random_position, read_controls, get_frame_size
 from explosion import explode
-from obstacles import Obstacle
+from obstacles import Obstacle, has_collision, show_obstacles
 from physics import update_speed
 from game_scenario import get_garbage_delay_tics, PHRASES
 
@@ -33,13 +33,13 @@ class State:
         self.rocket_frame_1 = None
         self.rocket_frame_2 = None
         self.garbage_frames = None
-        
+
         self.is_game_over = False
 
-        self.obsitacles = []
+        self.obstacles = []
         self.obstacles_in_last_collisions = []
-        
-        self.year = 1957
+
+        self.year = START_YEAR
 
         self.load_frames()
 
@@ -48,16 +48,16 @@ class State:
             self.rocket_frame_1 = f1.read()
         with open("img/rocket_frame_2.txt") as f2:
             self.rocket_frame_2 = f2.read()
-        
+
         garbage_frames = {}
         for path in GARBAGE_NAMES.keys():
             with open(path) as f:
                 garbage_frames[path] = f.read()
         self.garbage_frames = garbage_frames
-    
+
         with open("img/game_over.txt") as f:
             self.game_over_frame = f.read()
-    
+
 
 state = State()
 
@@ -94,13 +94,36 @@ async def blink(canvas, row, column, offset_tics, symbol="*"):
         await sleep(delay)
 
 
-async def fire(canvas, start_row, start_column, rows_speed=-1, columns_speed=0):
+def draw_plasma_gun_frame(canvas, start_row, start_column, negative=False):
+    plasma_gun_char = " " if negative else "|"
+    for row in range(round(start_row)):
+        canvas.addstr(round(row), round(start_column), plasma_gun_char)
+
+
+async def plasma_gun_fire(canvas, start_row, start_column):
+    plasma_gun_obstacle = Obstacle(0, start_column, start_row, 1)
+
+    draw_plasma_gun_frame(canvas, start_row, start_column)
+    for obstacle in state.obstacles.copy():
+        if has_collision(
+            (plasma_gun_obstacle.row, plasma_gun_obstacle.column),
+            (plasma_gun_obstacle.rows_size, plasma_gun_obstacle.columns_size),
+            (obstacle.row, obstacle.column),
+            (obstacle.rows_size, obstacle.columns_size),
+        ):
+            state.obstacles_in_last_collisions.append(obstacle)
+            state.obstacles.remove(obstacle)
+
+    await sleep()
+    draw_plasma_gun_frame(canvas, start_row, start_column, negative=True)
+
+
+async def simple_fire(canvas, start_row, start_column, rows_speed=-1, columns_speed=0):
     """Display animation of gun shot, direction and speed can be specified."""
     row, column = start_row, start_column
-    
     canvas.addstr(round(row), round(column), "*")
     await sleep()
- 
+
     canvas.addstr(round(row), round(column), "O")
     await sleep()
     canvas.addstr(round(row), round(column), " ")
@@ -114,12 +137,12 @@ async def fire(canvas, start_row, start_column, rows_speed=-1, columns_speed=0):
     curses.beep()
 
     while 1 < row < height and 1 < column < width:
-        for obsticle in state.obsitacles.copy():
-            if obsticle.has_collision(row, column):
-                state.obstacles_in_last_collisions.append(obsticle)
-                state.obsitacles.remove(obsticle)
+        for obstacle in state.obstacles.copy():
+            if obstacle.has_collision(row, column):
+                state.obstacles_in_last_collisions.append(obstacle)
+                state.obstacles.remove(obstacle)
                 return
-        
+
         canvas.addstr(round(row), round(column), symbol)
         await sleep()
         canvas.addstr(round(row), round(column), " ")
@@ -152,7 +175,9 @@ async def animate_spaceship(canvas, start_row, start_column):
         rows_direction, columns_direction, space_pressed = read_controls(canvas)
         state.space_pressed = space_pressed
 
-        row_speed, column_speed = update_speed(state.row_speed, state.column_speed, rows_direction, columns_direction)
+        row_speed, column_speed = update_speed(
+            state.row_speed, state.column_speed, rows_direction, columns_direction
+        )
         state.row_speed = row_speed
         state.column_speed = column_speed
 
@@ -162,8 +187,8 @@ async def animate_spaceship(canvas, start_row, start_column):
         await sleep()
         draw_frame(canvas, row, column, rocket_frame, negative=True)
 
-        for obsticle in state.obsitacles.copy():
-            if obsticle.has_collision(row, column, obj_size_rows=9, obj_size_columns=5):
+        for obstacle in state.obstacles.copy():
+            if obstacle.has_collision(row, column, obj_size_rows=9, obj_size_columns=5):
                 state.is_game_over = True
                 return
 
@@ -173,8 +198,10 @@ async def animate_fire(canvas):
         await sleep()
         row, column = state.ship_position
         if state.space_pressed:
-            
-            COROUTINES.append(fire(canvas, row, column + 2))
+            if state.year < 2020:
+                COROUTINES.append(simple_fire(canvas, row, column + 2))
+            else:
+                COROUTINES.append(plasma_gun_fire(canvas, row, column + 2))
             await sleep(FIRE_COOLDOWN_TICS)
 
 
@@ -189,15 +216,21 @@ async def fly_garbage(canvas, column, garbage_frame, speed=0.5):
 
     rows_size = len(garbage_frame.splitlines())
     columns_size = len(max(garbage_frame.splitlines(), key=lambda x: len(x)))
-    
+
     obstacle = add_obstacle(row, column, rows_size, columns_size)
-    
+
     while row < rows_number:
         if obstacle in state.obstacles_in_last_collisions.copy():
-            COROUTINES.append(explode(canvas, obstacle.row + obstacle.rows_size / 2, obstacle.column + obstacle.columns_size / 2))
+            COROUTINES.append(
+                explode(
+                    canvas,
+                    obstacle.row + obstacle.rows_size / 2,
+                    obstacle.column + obstacle.columns_size / 2,
+                )
+            )
             state.obstacles_in_last_collisions.remove(obstacle)
             return
-        
+
         draw_frame(canvas, row, column, garbage_frame)
         await sleep()
         draw_frame(canvas, row, column, garbage_frame, negative=True)
@@ -215,41 +248,41 @@ async def fill_orbit_with_garbage(canvas):
             COROUTINES.append(fly_garbage(canvas, column, garbage_frame))
         else:
             await sleep()
-    
+
 
 async def show_game_over(canvas):
     while True:
         if state.is_game_over:
             row, column = get_center_position(canvas)
-            draw_frame(canvas, row - (6/2), column - (54/2), state.game_over_frame)
+            draw_frame(canvas, row - (6 / 2), column - (54 / 2), state.game_over_frame)
         await sleep()
 
 
 async def draw_year(canvas):
-    empty_phrase = ' ' * len(max(PHRASES.values(), key = lambda e: len(e)))
-    
-    phrase = ''
+    empty_phrase = " " * len(max(PHRASES.values(), key=lambda e: len(e)))
+
+    phrase = ""
     while True:
         if state.year in PHRASES:
-            phrase = f': {PHRASES[state.year]}'
+            phrase = f": {PHRASES[state.year]}"
         else:
             phrase = empty_phrase
-            
-        draw_frame(canvas, 0, 0, f'{str(state.year)}{phrase}')        
+
+        draw_frame(canvas, 0, 0, f"{str(state.year)}{phrase}")
         await sleep(TICS_TO_CHANGE_YEAR)
         state.year += 1
 
 
 def add_obstacle(row, column, rows_size, columns_size):
     obstacle = Obstacle(row, column, rows_size, columns_size)
-    state.obsitacles.append(obstacle)
+    state.obstacles.append(obstacle)
     return obstacle
-    
-        
+
+
 def draw(canvas):
     curses.curs_set(False)
     rows_number, columns_number = canvas.getmaxyx()
-    
+
     game_canvas = canvas.derwin(rows_number - 5, columns_number, 0, 0)
     game_canvas.border()
     game_canvas.nodelay(True)
@@ -260,22 +293,21 @@ def draw(canvas):
     for _ in range(NUMBER_OF_STARS):
         offset_tics = random.randint(MIN_OFFSET_TICS, MAX_OFFSET_TICS)
         COROUTINES.append(
-            blink(game_canvas, *get_random_position(game_canvas), offset_tics, get_star_symbol())
+            blink(
+                game_canvas,
+                *get_random_position(game_canvas),
+                offset_tics,
+                get_star_symbol(),
+            )
         )
 
     COROUTINES.append(animate_spaceship(game_canvas, *get_center_position(game_canvas)))
     COROUTINES.append(animate_fire(game_canvas))
-    
     COROUTINES.append(fill_orbit_with_garbage(game_canvas))
     COROUTINES.append(show_game_over(game_canvas))
-
-
     COROUTINES.append(draw_year(year_canvas))
-        
-    # COROUTINES.append(show_obstacles(game_canvas, state.obsitacles))
 
-
-    while COROUTINES:        
+    while COROUTINES:
         for coroutine in COROUTINES.copy():
             try:
                 coroutine.send(None)
