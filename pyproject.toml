@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "ipython>=8.37.0",
+    "isort>=8.0.1",
     "ruff>=0.14.4",
 ]
